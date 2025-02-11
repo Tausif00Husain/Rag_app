@@ -1,26 +1,52 @@
 import pdfplumber
 from langchain_community.llms import Ollama
-from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import FAISS
 from langchain.chains import RetrievalQA
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import FAISS
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_ollama import OllamaLLM
+import json
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain")
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain_community")
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain_ollama")
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain_huggingface")
 
-# Choose your embedding model
-from langchain_community.embeddings import HuggingFaceEmbeddings  # For SentenceTransformers & BGE
+import logging
+import os
+
+# Suppress Transformers Warnings
+logging.getLogger("transformers").setLevel(logging.ERROR)
+
+# Suppress FAISS Warnings
+logging.getLogger("faiss").setLevel(logging.ERROR)
+
+# Suppress LangChain Logs
+logging.getLogger("langchain").setLevel(logging.ERROR)
+
+# Suppress PyTorch Warnings
+logging.getLogger("torch").setLevel(logging.ERROR)
+
+# Suppress FAISS Logs from Standard Output
+os.environ["FAISS_NO_VERBOSE"] = "1"
+
+# Suppress Hugging Face Model Download Warnings
+os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
 # Load LLaMA 3.2 using Ollama
-llm = Ollama(
+llm = OllamaLLM(
     model="llama3.2",
     system="""You are a helpful AI assistant who answers queries based on the provided knowledge from the documents.
            If the information is not available, respond politely that you do not know.
            
-           **Output Format**:-
-           {"Response": "text"}
+           **JSON Output Format**:-
+           '{Response: text}'
            """
 )
 
 # PDF Path
-pdf_path = "./AI chat box.pdf"
+pdf_path = "./pdf/AI chat box.pdf"
 
 # Extract text from PDF
 loader = PyPDFLoader(pdf_path)
@@ -51,16 +77,9 @@ embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-Mi
 vector_store = FAISS.from_texts(texts, embedding_model)
 retriever = vector_store.as_retriever()
 
-# Create a chat function
+# Function to chat with the PDF (RAG)
 def chat_with_pdf(query):
     qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever, chain_type="stuff")
-    response = qa_chain.run(query)
-    return response
-
-# Interactive chat loop
-while True:
-    user_query = input("Ask a question (or type 'exit' to quit): ")
-    if user_query.lower() == "exit":
-        break
-    answer = chat_with_pdf(user_query)
-    print("\nLLaMA Response:", answer, "\n")
+    response = qa_chain.invoke(query)
+    
+    return json.dumps({"Response": response}, indent=2)
